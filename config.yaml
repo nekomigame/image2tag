@@ -1,0 +1,39 @@
+# Cryptomator & WebDAV 接続設定
+storage:
+  # Cryptomator の設定画面で確認できる内蔵 WebDAV サーバーの URL
+  webdav_url: "http://127.0.0.1:42427/MyVault"
+  username: ""       # Cryptomator 内蔵 WebDAV で認証を設定している場合に入力
+  password: ""
+  auth_type: "basic" # 'basic' または 'digest'
+  verify_ssl: false
+
+# rule34 データ収集デフォルト設定
+collector:
+  dataset_name: "sample_1girl_v1" # 保存先データセット識別名（複数パターン管理）
+  query_tags:
+    - "1girl"
+    - "solo"
+  limit: 500         # 取得枚数上限
+  min_score: 5       # 最小スコアフィルター
+  rate_limit_delay: 0.3 # 各ダウンロード待機秒数 (API負荷軽減)
+
+# 学習パイプライン設定
+training:
+  target_dataset: "sample_1girl_v1" # 学習対象データセット識別名 (過去のデータセットを指定して再学習可能)
+  
+  # モデルプリセット:
+  #   - 'low_vram'     : SwinV2-Tiny 256px (省メモリ, VRAM 6~8GB 向け)
+  #   - 'high_quality' : SwinV2-Base 256px (標準/高精度, VRAM 12~24GB 向け)
+  preset: "low_vram"
+  
+  # タグの絞り込み基準（出現回数）
+  min_tag_frequency: 5 # この回数未満しか出現しない稀少タグを除外
+  
+  pretrained: true
+  batch_size: 16
+  epochs: 15
+  lr: 0.0001
+  weight_decay: 0.01
+  num_workers: 0       # Windows環境でのストリーミング安定動作のため 0 推奨
+  in_memory_cache_size: 500 # RAM内に保持する最大画像数 (ローカルSSDには書き込みません)
+  output_dir: "./checkpoints" # モデル重みの保存先

@@ -1,0 +1,70 @@
+# Swin Transformer v2 画像・タグ学習システム
+
+Swin Transformer v2 を用いたイラスト画像に対するマルチラベルタグ分類モデルの学習システムです。
+
+## 特徴
+1. **SSD平文非保存 (Zero-Disk Persistence)**:
+   - ダウンロードした画像バイナリをローカルSSD（一時フォルダー等）に一切保存せず、RAMバッファ（`io.BytesIO`）から Cryptomator の内蔵 WebDAV サーバーへ直接 `HTTP PUT` で暗号化保存します。
+   - 学習時も WebDAV から直接 `HTTP GET` でストリーミング取得し、RAM 上でのみデコード・学習を行います。
+2. **複数パターンのデータセット保存 & 再学習**:
+   - データセット名（`--dataset-name`）ごとに独立したフォルダー構造で保存・管理。
+   - Rule34 に再アクセスすることなく、Cryptomator 内の蓄積データから過去のデータセットを指定して何度でも再学習が可能です。
+3. **プリセット切り替え**:
+   - 省メモリモード (`low_vram`: SwinV2-Tiny, 256px, VRAM 6~8GB)
+   - 標準/高精度モード (`high_quality`: SwinV2-Base, 256px, VRAM 12~24GB)
+4. **タグ出現回数による絞り込み**:
+   - 最小出現回数（`--min-frequency`）を指定して、ノイズタグを自動除外。
+
+---
+
+## 準備
+
+### 1. Cryptomator の設定
+1. Cryptomator を起動し、対象の保管庫（Vault）をアンロックします。
+2. Cryptomator の「設定」または保管庫オプションを開き、仮想ドライブタイプを「WebDAV」に設定（または内蔵 WebDAV サーバーを有効化）。
+3. 表示される WebDAV URL（例: `http://127.0.0.1:42427/MyVault`）を確認し、`config.yaml` の `storage.webdav_url` に設定します。
+
+---
+
+## 使い方
+
+### 1. データセットの収集・Cryptomator への直接保存 (`download`)
+Rule34 からタグと枚数を指定してダウンロードし、Cryptomator の WebDAV へ直接暗号化保存します。
+
+```powershell
+# 例: '1girl solo' タグで 500枚収集し、データセット名 'solo_1girl_v1' として保存
+uv run python main.py download --dataset-name "solo_1girl_v1" --tags "1girl solo" --limit 500
+
+# 別のパターンを保存したい場合
+uv run python main.py download --dataset-name "vtuber_blue_eyes" --tags "vtuber blue_eyes" --limit 1000
+```
+
+### 2. 保存済みデータセットの一覧確認 (`list`)
+Cryptomator 内に暗号化保存されているデータセット一覧、枚数、収集タグを確認できます。
+
+```powershell
+uv run python main.py list
+```
+
+### 3. 学習・再学習の実行 (`train`)
+保存済みのデータセットを指定して、Swin Transformer v2 の学習を開始します。
+
+```powershell
+# 省メモリモード（VRAM 6~8GB向け）で、出現回数 5回以上のタグを学習
+uv run python main.py train --dataset-name "solo_1girl_v1" --preset low_vram --min-frequency 5 --epochs 20
+
+# 標準/高精度モードで再学習する場合
+uv run python main.py train --dataset-name "solo_1girl_v1" --preset high_quality --min-frequency 10 --epochs 30
+```
+
+---
+
+## モジュール構成
+- [main.py](file:///C:/Users/nekom/Desktop/python/image2tag/main.py): CLI 統合エントリーポイント
+- [collector.py](file:///C:/Users/nekom/Desktop/python/image2tag/collector.py): Rule34 画像収集 & WebDAV 直接 PUT
+- [webdav_client.py](file:///C:/Users/nekom/Desktop/python/image2tag/webdav_client.py): Cryptomator 内蔵 WebDAV クライアント（インメモリ直接通信）
+- [dataset.py](file:///C:/Users/nekom/Desktop/python/image2tag/dataset.py): WebDAV ストリーミング PyTorch Dataset
+- [model.py](file:///C:/Users/nekom/Desktop/python/image2tag/model.py): Swin Transformer v2 & 分類ヘッド
+- [loss.py](file:///C:/Users/nekom/Desktop/python/image2tag/loss.py): Asymmetric Loss (不均衡対応マルチラベル損失)
+- [train.py](file:///C:/Users/nekom/Desktop/python/image2tag/train.py): 学習パイプライン
+- [config.yaml](file:///C:/Users/nekom/Desktop/python/image2tag/config.yaml): 共通設定ファイル

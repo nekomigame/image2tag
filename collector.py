@@ -1,0 +1,171 @@
+"""Rule34 データセット収集モジュール.
+
+rule34py を使用してメタデータおよび画像バイナリを取得し、
+ローカルディスク（SSD）を一切経由せずに Cryptomator の内蔵 WebDAV サーバーへ
+直接暗号化保存します。
+"""
+
+from datetime import datetime, timezone
+import io
+import json
+import time
+from typing import Any, Dict, List, Optional
+import requests
+from rule34Py import rule34Py
+from tqdm import tqdm
+
+from webdav_client import WebDAVClient
+
+
+class DatasetCollector:
+    """Rule34 から画像を収集し、WebDAV へ直接暗号化保存するコレクター."""
+
+    def __init__(self, webdav_client: WebDAVClient) -> None:
+        """コレクターを初期化します.
+
+        Args:
+            webdav_client: WebDAV クライアントインスタンス
+        """
+        self.client: WebDAVClient = webdav_client
+        self.r34 = rule34Py()
+        self.http_session = requests.Session()
+
+    def collect(
+        self,
+        dataset_name: str,
+        query_tags: List[str],
+        limit: int = 1000,
+        min_score: int = 0,
+        rate_limit_delay: float = 0.5,
+    ) -> Dict[str, Any]:
+        """指定したタグ条件で画像を検索し、Cryptomator に直接保存します.
+
+        Args:
+            dataset_name: 保存先データセット名 (英数字・アンダースコア推奨)
+            query_tags: 検索タグのリスト (例: ['1girl', 'solo'])
+            limit: 収集上限枚数
+            min_score: 最小スコアフィルター
+            rate_limit_delay: 各ダウンロード間の待機秒数
+
+        Returns:
+            収集結果の統計情報辞書
+        """
+        # 保存先パスの準備
+        dataset_path = f"datasets/{dataset_name}"
+        images_path = f"{dataset_path}/images"
+        metadata_file = f"{dataset_path}/metadata.jsonl"
+        info_file = f"{dataset_path}/dataset_info.json"
+
+        # WebDAV 上にディレクトリ構造を作成
+        self.client.mkdir_p(images_path)
+
+        # 既存メタデータがある場合は取得して重複を防止（再開対応）
+        existing_ids = set()
+        existing_metadata_bytes = self.client.get_bytes(metadata_file)
+        metadata_records: List[Dict[str, Any]] = []
+
+        if existing_metadata_bytes:
+            for line in existing_metadata_bytes.decode("utf-8").splitlines():
+                if line.strip():
+                    record = json.loads(line)
+                    existing_ids.add(record["id"])
+                    metadata_records.append(record)
+            print(f"既存のデータセット '{dataset_name}' を検出しました。既存登録画像数: {len(existing_ids)} 枚")
+
+        print(f"Rule34 検索開始: tags={query_tags}, 取得目標: {limit} 枚 (スコア >={min_score})")
+
+        downloaded_count = 0
+        page_id = 0
+        pbar = tqdm(total=limit, initial=len(existing_ids), desc="画像収集 & WebDAV直接保存")
+
+        while len(existing_ids) < limit:
+            try:
+                # rule34Py で検索結果を取得 (1ページあたり通常100件)
+                batch_limit = min(100, limit - len(existing_ids))
+                posts = self.r34.search(
+                    tags=query_tags,
+                    limit=batch_limit,
+                    page_id=page_id,
+                )
+            except Exception as e:
+                print(f"\nRule34 API 検索エラー (ページ {page_id}): {e}")
+                break
+
+            if not posts:
+                print("\n検索結果の終端に到達しました。")
+                break
+
+            for post in posts:
+                if len(existing_ids) >= limit:
+                    break
+
+                post_id = post.id
+                if post_id in existing_ids:
+                    continue
+
+                if post.score < min_score:
+                    continue
+
+                file_url = getattr(post, "image", None) or getattr(post, "sample", None)
+                if not file_url:
+                    continue
+
+                # 拡張子判定
+                ext = file_url.split(".")[-1].split("?")[0].lower()
+                if ext not in ("jpg", "jpeg", "png", "webp"):
+                    continue
+
+                filename = f"{post_id}.{ext}"
+                target_webdav_path = f"{images_path}/{filename}"
+
+                # 画像をインメモリ（RAM）で取得し、即座に WebDAV へ直接 PUT（SSD非保存）
+                try:
+                    resp = self.http_session.get(file_url, timeout=30)
+                    if resp.status_code == 200:
+                        # WebDAV へ直接アップロード
+                        success = self.client.put_bytes(target_webdav_path, resp.content)
+                        if success:
+                            # タグリストの取得
+                            tags_list = []
+                            if hasattr(post, "tags"):
+                                if isinstance(post.tags, list):
+                                    tags_list = post.tags
+                                elif isinstance(post.tags, str):
+                                    tags_list = post.tags.split()
+
+                            record = {
+                                "id": post_id,
+                                "filename": filename,
+                                "tags": tags_list,
+                                "score": post.score,
+                            }
+                            metadata_records.append(record)
+                            existing_ids.add(post_id)
+                            downloaded_count += 1
+                            pbar.update(1)
+                except Exception:
+                    # ダウンロードエラー時はスキップして続行
+                    pass
+
+                time.sleep(rate_limit_delay)
+
+            page_id += 1
+
+        pbar.close()
+
+        # メタデータ（metadata.jsonl）をインメモリで生成し、WebDAV に保存
+        metadata_lines = [json.dumps(r, ensure_ascii=False) for r in metadata_records]
+        metadata_content = "\n".join(metadata_lines) + "\n"
+        self.client.put_bytes(metadata_file, metadata_content.encode("utf-8"))
+
+        # データセット情報（dataset_info.json）の保存
+        info_data = {
+            "dataset_name": dataset_name,
+            "query_tags": query_tags,
+            "total_images": len(metadata_records),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self.client.put_bytes(info_file, json.dumps(info_data, indent=2, ensure_ascii=False).encode("utf-8"))
+
+        print(f"\nデータセット '{dataset_name}' の保存完了: 総計 {len(metadata_records)} 枚 (今回新規追加: {downloaded_count} 枚)")
+        return info_data
