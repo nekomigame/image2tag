@@ -86,8 +86,8 @@ def train_model(config: Dict[str, Any]) -> None:
     storage_cfg = config.get("storage", {})
     client = WebDAVClient(
         base_url=storage_cfg.get("webdav_url", "http://127.0.0.1:42427/MyVault"),
-        username=storage_cfg.get("username"),
-        password=storage_cfg.get("password"),
+        username=os.getenv("WEBDAV_USERNAME") or storage_cfg.get("username"),
+        password=os.getenv("WEBDAV_PASSWORD") or storage_cfg.get("password"),
         auth_type=storage_cfg.get("auth_type", "basic"),
         verify_ssl=storage_cfg.get("verify_ssl", False),
     )

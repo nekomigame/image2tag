@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "pillow>=13.0.0",
+    "python-dotenv>=1.2.4",
     "pyyaml>=6.0.3",
     "requests>=2.34.2",
     "rule34py>=4.2.0",

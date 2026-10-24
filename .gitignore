@@ -9,8 +9,11 @@ wheels/
 # Virtual environments
 .venv
 
-# Local configuration
+# Local configuration & secrets
 config.yaml
+.env
+.env.*
+!.env.example
 
 # Training artifacts & cache
 checkpoints/

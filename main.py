@@ -9,7 +9,8 @@ import argparse
 import json
 import os
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+from dotenv import load_dotenv
 import yaml
 
 from collector import DatasetCollector
@@ -37,16 +38,27 @@ def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:
         return yaml.safe_load(f) or {}
 
 
+def get_webdav_client(config: Dict[str, Any], url_override: Optional[str] = None) -> WebDAVClient:
+    """設定および環境変数から WebDAV クライアントを初期化します."""
+    storage_cfg = config.get("storage", {})
+    base_url = url_override or storage_cfg.get("webdav_url", "http://127.0.0.1:42427/MyVault")
+    username = os.getenv("WEBDAV_USERNAME") or storage_cfg.get("username")
+    password = os.getenv("WEBDAV_PASSWORD") or storage_cfg.get("password")
+    auth_type = storage_cfg.get("auth_type", "basic")
+    verify_ssl = storage_cfg.get("verify_ssl", False)
+
+    return WebDAVClient(
+        base_url=base_url,
+        username=username,
+        password=password,
+        auth_type=auth_type,
+        verify_ssl=verify_ssl,
+    )
+
+
 def handle_download(args: argparse.Namespace, config: Dict[str, Any]) -> None:
     """データ収集処理を実行します."""
-    storage_cfg = config.get("storage", {})
-    client = WebDAVClient(
-        base_url=args.webdav_url or storage_cfg.get("webdav_url", "http://127.0.0.1:42427/MyVault"),
-        username=storage_cfg.get("username"),
-        password=storage_cfg.get("password"),
-        auth_type=storage_cfg.get("auth_type", "basic"),
-        verify_ssl=storage_cfg.get("verify_ssl", False),
-    )
+    client = get_webdav_client(config, args.webdav_url)
 
     collector_cfg = config.get("collector", {})
     dataset_name = args.dataset_name or collector_cfg.get("dataset_name", "dataset_v1")
@@ -83,14 +95,7 @@ def handle_train(args: argparse.Namespace, config: Dict[str, Any]) -> None:
 
 def handle_list(args: argparse.Namespace, config: Dict[str, Any]) -> None:
     """WebDAV 内に保存されているデータセット一覧を表示します."""
-    storage_cfg = config.get("storage", {})
-    client = WebDAVClient(
-        base_url=args.webdav_url or storage_cfg.get("webdav_url", "http://127.0.0.1:42427/MyVault"),
-        username=storage_cfg.get("username"),
-        password=storage_cfg.get("password"),
-        auth_type=storage_cfg.get("auth_type", "basic"),
-        verify_ssl=storage_cfg.get("verify_ssl", False),
-    )
+    client = get_webdav_client(config, args.webdav_url)
 
     print("\nCryptomator 内のデータセットを検索中...")
     datasets = client.list_dir("datasets")
@@ -118,6 +123,9 @@ def handle_list(args: argparse.Namespace, config: Dict[str, Any]) -> None:
 
 def main() -> None:
     """メイン関数."""
+    # .env 環境変数を読み込み
+    load_dotenv()
+
     parser = argparse.ArgumentParser(
         description="Swin Transformer v2 画像・タグ学習システム (Cryptomator WebDAV連携)"
     )

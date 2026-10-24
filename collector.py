@@ -8,8 +8,10 @@ rule34py を使用してメタデータおよび画像バイナリを取得し�
 from datetime import datetime, timezone
 import io
 import json
+import os
 import time
 from typing import Any, Dict, List, Optional
+from dotenv import load_dotenv
 import requests
 from rule34Py import rule34Py
 from tqdm import tqdm
@@ -26,8 +28,22 @@ class DatasetCollector:
         Args:
             webdav_client: WebDAV クライアントインスタンス
         """
+        # .env から環境変数をロード
+        load_dotenv()
+
         self.client: WebDAVClient = webdav_client
         self.r34 = rule34Py()
+
+        # .env から API キーとユーザー ID を適用
+        api_key = os.getenv("RULE34_API_KEY", "").strip()
+        user_id = os.getenv("RULE34_USER_ID", "").strip()
+        if api_key:
+            self.r34.api_key = api_key
+            print("Rule34 API キーを設定しました。")
+        if user_id:
+            self.r34.user_id = user_id
+            print(f"Rule34 ユーザー ID ({user_id}) を設定しました。")
+
         self.http_session = requests.Session()
 
     def collect(
