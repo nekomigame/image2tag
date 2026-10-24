@@ -216,5 +216,8 @@ class DatasetCollector:
         }
         self.client.put_bytes(info_file, json.dumps(info_data, indent=2, ensure_ascii=False).encode("utf-8"))
 
-        print(f"\nデータセット '{dataset_name}' の保存完了: 総計 {len(metadata_records)} 枚 (今回新規追加: {downloaded_count} 枚)")
+        if not metadata_records:
+            print(f"\n警告: 条件に一致する画像が 1 件も取得できませんでした。タグスペルや min_score を確認してください。")
+        else:
+            print(f"\nデータセット '{dataset_name}' の保存完了: 総計 {len(metadata_records)} 枚 (今回新規追加: {downloaded_count} 枚)")
         return info_data

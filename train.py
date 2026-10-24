@@ -111,7 +111,7 @@ def train_model(config: Dict[str, Any]) -> None:
     print(f"=======================================================")
 
     # 1. タグ語彙辞書の準備
-    tag_to_id, _ = prepare_tag_vocabulary(
+    tag_to_id, id_to_tag = prepare_tag_vocabulary(
         client, target_dataset, min_tag_frequency=min_tag_frequency
     )
     num_classes = len(tag_to_id)
@@ -125,7 +125,8 @@ def train_model(config: Dict[str, Any]) -> None:
         custom_model_name=train_cfg.get("model_name", ""),
         pretrained=train_cfg.get("pretrained", True),
     )
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device_type = "cuda" if torch.cuda.is_available() else "cpu"
+    device = torch.device(device_type)
     model = model.to(device)
     print(f"デバイス: {device}, 入力解像度: {image_size}x{image_size}, モデル: {model.model_name}")
 
@@ -195,7 +196,7 @@ def train_model(config: Dict[str, Any]) -> None:
             images = preprocess_on_gpu(images, augment=True)
 
             optimizer.zero_grad()
-            with autocast("cuda", enabled=torch.cuda.is_available()):
+            with autocast(device_type, enabled=(device_type == "cuda")):
                 logits = model(images)
                 loss = criterion(logits, targets)
 
@@ -217,7 +218,7 @@ def train_model(config: Dict[str, Any]) -> None:
                 targets = targets.to(device, non_blocking=True)
                 images = preprocess_on_gpu(images, augment=False)
 
-                with autocast("cuda", enabled=torch.cuda.is_available()):
+                with autocast(device_type, enabled=(device_type == "cuda")):
                     logits = model(images)
                     loss = criterion(logits, targets)
                 val_loss += loss.item()
@@ -239,6 +240,8 @@ def train_model(config: Dict[str, Any]) -> None:
                     "preset": preset,
                     "image_size": image_size,
                     "num_classes": num_classes,
+                    "tag_to_id": tag_to_id,
+                    "id_to_tag": id_to_tag,
                 },
                 ckpt_path,
             )

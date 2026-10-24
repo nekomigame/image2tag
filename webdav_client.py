@@ -75,11 +75,13 @@ class WebDAVClient:
             成功または既に存在する場合は True
         """
         url = self._build_url(path)
-        resp = self.session.request("MKCOL", url, verify=self.verify_ssl)
-        # 201 Created または 405 Method Not Allowed (既に存在)
-        if resp.status_code in (201, 405):
-            return True
-        return resp.ok
+        try:
+            resp = self.session.request("MKCOL", url, verify=self.verify_ssl, timeout=10)
+            if resp.status_code in (201, 405):
+                return True
+            return resp.ok
+        except requests.RequestException:
+            return False
 
     def mkdir_p(self, path: str) -> bool:
         """親ディレクトリを含めて再帰的に作成します.
@@ -109,8 +111,13 @@ class WebDAVClient:
         """
         url = self._build_url(path)
         headers = {"Depth": "0"}
-        resp = self.session.request("PROPFIND", url, headers=headers, verify=self.verify_ssl)
-        return resp.status_code in (200, 207)
+        try:
+            resp = self.session.request(
+                "PROPFIND", url, headers=headers, verify=self.verify_ssl, timeout=10
+            )
+            return resp.status_code in (200, 207)
+        except requests.RequestException:
+            return False
 
     def put_bytes(self, path: str, data: bytes) -> bool:
         """メモリ上のバイト列を直接アップロードします (HTTP PUT).
@@ -125,8 +132,11 @@ class WebDAVClient:
             成功した場合は True
         """
         url = self._build_url(path)
-        resp = self.session.put(url, data=data, verify=self.verify_ssl)
-        return resp.status_code in (200, 201, 204)
+        try:
+            resp = self.session.put(url, data=data, verify=self.verify_ssl, timeout=30)
+            return resp.status_code in (200, 201, 204)
+        except requests.RequestException:
+            return False
 
     def put_stream(self, path: str, stream: io.BytesIO) -> bool:
         """BytesIO ストリームを直接アップロードします (HTTP PUT).
@@ -153,10 +163,13 @@ class WebDAVClient:
             取得したバイト列 (失敗時は None)
         """
         url = self._build_url(path)
-        resp = self.session.get(url, stream=True, verify=self.verify_ssl)
-        if resp.status_code == 200:
-            return resp.content
-        return None
+        try:
+            resp = self.session.get(url, stream=True, verify=self.verify_ssl, timeout=30)
+            if resp.status_code == 200:
+                return resp.content
+            return None
+        except requests.RequestException:
+            return None
 
     def get_stream(self, path: str) -> Optional[io.BytesIO]:
         """ファイルを BytesIO ストリームとして取得します.
@@ -175,6 +188,9 @@ class WebDAVClient:
     def list_dir(self, path: str) -> List[str]:
         """ディレクトリ内のアイテム一覧を取得します (PROPFIND Depth 1).
 
+        名前空間プレフィックスの相違 (d:, D:, デフォルト名前空間) を吸収して
+        安全に解析します。
+
         Args:
             path: 一覧を取得するディレクトリパス
 
@@ -183,28 +199,38 @@ class WebDAVClient:
         """
         url = self._build_url(path)
         headers = {"Depth": "1"}
-        resp = self.session.request("PROPFIND", url, headers=headers, verify=self.verify_ssl)
-        if resp.status_code not in (200, 207):
+        try:
+            resp = self.session.request(
+                "PROPFIND", url, headers=headers, verify=self.verify_ssl, timeout=15
+            )
+            if resp.status_code not in (200, 207):
+                return []
+        except requests.RequestException:
             return []
 
         items: List[str] = []
         try:
             root = ET.fromstring(resp.content)
-            # WebDAV 名前空間
-            ns = {"d": "DAV:"}
             target_path_norm = urllib.parse.urlparse(url).path.rstrip("/")
 
-            for response in root.findall("d:response", ns):
-                href = response.find("d:href", ns)
-                if href is not None and href.text:
-                    item_path = urllib.parse.unquote(href.text).rstrip("/")
-                    # 自分自身を除外
-                    if item_path != target_path_norm:
-                        name = item_path.split("/")[-1]
-                        if name:
-                            items.append(name)
+            # XML名前空間に依存せず、要素のローカル名で探索
+            for elem in root.iter():
+                elem_tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+                if elem_tag == "response":
+                    href_elem = None
+                    for child in elem:
+                        child_tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                        if child_tag == "href":
+                            href_elem = child
+                            break
+
+                    if href_elem is not None and href_elem.text:
+                        item_path = urllib.parse.unquote(href_elem.text).rstrip("/")
+                        if item_path != target_path_norm:
+                            name = item_path.split("/")[-1]
+                            if name and name not in items:
+                                items.append(name)
         except Exception:
-            # XML解析失敗時は空リスト
             return []
 
         return items

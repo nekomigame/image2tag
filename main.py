@@ -87,6 +87,10 @@ def handle_train(args: argparse.Namespace, config: Dict[str, Any]) -> None:
         config.setdefault("training", {})["epochs"] = args.epochs
     if args.batch_size is not None:
         config.setdefault("training", {})["batch_size"] = args.batch_size
+    if args.preload is not None:
+        config.setdefault("training", {})["preload_to_ram"] = args.preload
+    if args.preload_workers is not None:
+        config.setdefault("training", {})["preload_workers"] = args.preload_workers
     if args.webdav_url:
         config.setdefault("storage", {})["webdav_url"] = args.webdav_url
 
@@ -156,6 +160,22 @@ def main() -> None:
     )
     tr_parser.add_argument("--epochs", "-e", type=int, help="エポック数")
     tr_parser.add_argument("--batch-size", "-b", type=int, help="バッチサイズ")
+    tr_parser.add_argument(
+        "--preload",
+        dest="preload",
+        action="store_true",
+        default=None,
+        help="全画像をマルチスレッドで RAM にプリロードする (SSD非保存高速化)",
+    )
+    tr_parser.add_argument(
+        "--no-preload",
+        dest="preload",
+        action="store_false",
+        help="RAM プリロードを無効化し逐次ストリーミングする",
+    )
+    tr_parser.add_argument(
+        "--preload-workers", type=int, default=None, help="RAM プリロード時の並列スレッド数 (デフォルト: 16)"
+    )
 
     # サブコマンド: list
     subparsers.add_parser("list", help="Cryptomator 内の保存済みデータセット一覧を表示")
