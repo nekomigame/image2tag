@@ -140,14 +140,14 @@ def main() -> None:
 
     # サブコマンド: download
     dl_parser = subparsers.add_parser("download", help="Rule34 から画像を収集して WebDAV に暗号化保存")
-    dl_parser.add_argument("--dataset-name", "-n", help="保存先データセット識別名")
+    dl_parser.add_argument("--dataset-name", "--dataset", "-n", help="保存先データセット識別名")
     dl_parser.add_argument("--tags", "-t", help="検索タグ (スペース区切り, 例: '1girl solo')")
     dl_parser.add_argument("--limit", "-l", type=int, help="取得上限枚数")
     dl_parser.add_argument("--min-score", "-s", type=int, help="最小スコアフィルター")
 
     # サブコマンド: train
     tr_parser = subparsers.add_parser("train", help="WebDAV 内のデータセットから学習を実行")
-    tr_parser.add_argument("--dataset-name", "-n", help="学習対象データセット名")
+    tr_parser.add_argument("--dataset-name", "--dataset", "-n", help="学習対象データセット名")
     tr_parser.add_argument(
         "--preset", "-p", choices=["low_vram", "high_quality"], help="モデルプリセット"
     )

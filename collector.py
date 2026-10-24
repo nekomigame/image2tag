@@ -94,87 +94,120 @@ class DatasetCollector:
         page_id = 0
         pbar = tqdm(total=limit, initial=len(existing_ids), desc="画像収集 & WebDAV直接保存")
 
-        while len(existing_ids) < limit:
-            try:
-                # rule34Py で検索結果を取得 (1ページあたり通常100件)
-                batch_limit = min(100, limit - len(existing_ids))
-                posts = self.r34.search(
-                    tags=query_tags,
-                    limit=batch_limit,
-                    page_id=page_id,
-                )
-            except Exception as e:
-                print(f"\nRule34 API 検索エラー (ページ {page_id}): {e}")
-                break
+        def save_metadata_checkpoint() -> None:
+            """収集途中のメタデータを WebDAV に保存して再開可能にします."""
+            if not metadata_records:
+                return
+            lines = [json.dumps(r, ensure_ascii=False) for r in metadata_records]
+            content = "\n".join(lines) + "\n"
+            self.client.put_bytes(metadata_file, content.encode("utf-8"))
 
-            if not posts:
-                print("\n検索結果の終端に到達しました。")
-                break
+            info_data = {
+                "dataset_name": dataset_name,
+                "query_tags": query_tags,
+                "total_images": len(metadata_records),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            self.client.put_bytes(
+                info_file,
+                json.dumps(info_data, indent=2, ensure_ascii=False).encode("utf-8"),
+            )
 
-            for post in posts:
-                if len(existing_ids) >= limit:
+        try:
+            while len(existing_ids) < limit:
+                posts = None
+                max_retries = 5
+                retry_delay = 5.0
+
+                for retry in range(max_retries):
+                    try:
+                        batch_limit = min(100, limit - len(existing_ids))
+                        posts = self.r34.search(
+                            tags=query_tags,
+                            limit=batch_limit,
+                            page_id=page_id,
+                        )
+                        break
+                    except Exception as e:
+                        err_str = str(e)
+                        if "429" in err_str or "Too Many Requests" in err_str:
+                            print(f"\nRule34 レートリミット (429) を検知。{retry_delay:.0f}秒待機してリトライします ({retry + 1}/{max_retries})...")
+                            time.sleep(retry_delay)
+                            retry_delay *= 2
+                        else:
+                            print(f"\nRule34 API 検索エラー (ページ {page_id}): {e}")
+                            break
+
+                if not posts:
+                    print("\nこれ以上の画像が見つからないか、検索を終了しました。")
                     break
 
-                post_id = post.id
-                if post_id in existing_ids:
-                    continue
+                for post in posts:
+                    if len(existing_ids) >= limit:
+                        break
 
-                if post.score < min_score:
-                    continue
+                    post_id = post.id
+                    if post_id in existing_ids:
+                        continue
 
-                file_url = getattr(post, "image", None) or getattr(post, "sample", None)
-                if not file_url:
-                    continue
+                    if post.score < min_score:
+                        continue
 
-                # 拡張子判定
-                ext = file_url.split(".")[-1].split("?")[0].lower()
-                if ext not in ("jpg", "jpeg", "png", "webp"):
-                    continue
+                    file_url = getattr(post, "image", None) or getattr(post, "sample", None)
+                    if not file_url:
+                        continue
 
-                filename = f"{post_id}.{ext}"
-                target_webdav_path = f"{images_path}/{filename}"
+                    # 拡張子判定
+                    ext = file_url.split(".")[-1].split("?")[0].lower()
+                    if ext not in ("jpg", "jpeg", "png", "webp"):
+                        continue
 
-                # 画像をインメモリ（RAM）で取得し、即座に WebDAV へ直接 PUT（SSD非保存）
-                try:
-                    resp = self.http_session.get(file_url, timeout=30)
-                    if resp.status_code == 200:
-                        # WebDAV へ直接アップロード
-                        success = self.client.put_bytes(target_webdav_path, resp.content)
-                        if success:
-                            # タグリストの取得
-                            tags_list = []
-                            if hasattr(post, "tags"):
-                                if isinstance(post.tags, list):
-                                    tags_list = post.tags
-                                elif isinstance(post.tags, str):
-                                    tags_list = post.tags.split()
+                    filename = f"{post_id}.{ext}"
+                    target_webdav_path = f"{images_path}/{filename}"
 
-                            record = {
-                                "id": post_id,
-                                "filename": filename,
-                                "tags": tags_list,
-                                "score": post.score,
-                            }
-                            metadata_records.append(record)
-                            existing_ids.add(post_id)
-                            downloaded_count += 1
-                            pbar.update(1)
-                except Exception:
-                    # ダウンロードエラー時はスキップして続行
-                    pass
+                    # 画像をインメモリ（RAM）で取得し、即座に WebDAV へ直接 PUT（SSD非保存）
+                    try:
+                        resp = self.http_session.get(file_url, timeout=30)
+                        if resp.status_code == 200:
+                            success = self.client.put_bytes(target_webdav_path, resp.content)
+                            if success:
+                                # タグリストを文字列として安全に抽出
+                                tags_list = []
+                                if hasattr(post, "tags") and post.tags:
+                                    if isinstance(post.tags, list):
+                                        for t in post.tags:
+                                            # Tag オブジェクトのプロパティまたは文字列として取得
+                                            tag_name = getattr(t, "tag", None) or getattr(t, "name", None) or str(t)
+                                            tags_list.append(str(tag_name).strip())
+                                    elif isinstance(post.tags, str):
+                                        tags_list = post.tags.split()
 
-                time.sleep(rate_limit_delay)
+                                record = {
+                                    "id": post_id,
+                                    "filename": filename,
+                                    "tags": tags_list,
+                                    "score": post.score,
+                                }
+                                metadata_records.append(record)
+                                existing_ids.add(post_id)
+                                downloaded_count += 1
+                                pbar.update(1)
 
-            page_id += 1
+                                # 25枚ごとにメタデータを WebDAV に定期書き込み（クラッシュ対策）
+                                if downloaded_count % 25 == 0:
+                                    save_metadata_checkpoint()
+                    except Exception:
+                        pass
 
-        pbar.close()
+                    time.sleep(rate_limit_delay)
 
-        # メタデータ（metadata.jsonl）をインメモリで生成し、WebDAV に保存
-        metadata_lines = [json.dumps(r, ensure_ascii=False) for r in metadata_records]
-        metadata_content = "\n".join(metadata_lines) + "\n"
-        self.client.put_bytes(metadata_file, metadata_content.encode("utf-8"))
+                page_id += 1
 
-        # データセット情報（dataset_info.json）の保存
+        finally:
+            pbar.close()
+            # 完了または中断時に最終メタデータを確実に WebDAV に保存
+            save_metadata_checkpoint()
+
         info_data = {
             "dataset_name": dataset_name,
             "query_tags": query_tags,
