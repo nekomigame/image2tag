@@ -11,5 +11,16 @@ dependencies = [
     "requests>=2.34.2",
     "rule34py>=4.2.0",
     "timm>=1.0.30",
+    "torch",
+    "torchvision",
     "tqdm>=4.70.1",
 ]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu130" }
+torchvision = { index = "pytorch-cu130" }

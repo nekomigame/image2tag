@@ -9,7 +9,7 @@ import json
 import os
 from typing import Any, Dict, List, Tuple
 import torch
-from torch.cuda.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 
@@ -163,7 +163,7 @@ def train_model(config: Dict[str, Any]) -> None:
     criterion = AsymmetricLoss(gamma_neg=4.0, gamma_pos=0.0, clip=0.05)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
-    scaler = GradScaler(enabled=torch.cuda.is_available())
+    scaler = GradScaler("cuda", enabled=torch.cuda.is_available())
 
     # 5. 学習ループ
     best_val_loss = float("inf")
@@ -178,7 +178,7 @@ def train_model(config: Dict[str, Any]) -> None:
             targets = targets.to(device, non_blocking=True)
 
             optimizer.zero_grad()
-            with autocast(enabled=torch.cuda.is_available()):
+            with autocast("cuda", enabled=torch.cuda.is_available()):
                 logits = model(images)
                 loss = criterion(logits, targets)
 
@@ -200,7 +200,7 @@ def train_model(config: Dict[str, Any]) -> None:
                 images = images.to(device, non_blocking=True)
                 targets = targets.to(device, non_blocking=True)
 
-                with autocast(enabled=torch.cuda.is_available()):
+                with autocast("cuda", enabled=torch.cuda.is_available()):
                     logits = model(images)
                     loss = criterion(logits, targets)
                 val_loss += loss.item()
