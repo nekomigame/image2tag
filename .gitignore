@@ -9,6 +9,9 @@ wheels/
 # Virtual environments
 .venv
 
+# Local configuration
+config.yaml
+
 # Training artifacts & cache
 checkpoints/
 *.pth

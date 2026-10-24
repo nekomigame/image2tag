@@ -19,7 +19,14 @@ Swin Transformer v2 を用いたイラスト画像に対するマルチラベル
 
 ## 準備
 
-### 1. Cryptomator の設定
+### 1. 設定ファイルの作成
+`example.config.yaml` をコピーして `config.yaml` を作成します（`config.yaml` はローカル専用で Git 追跡対象外です）。
+
+```powershell
+copy example.config.yaml config.yaml
+```
+
+### 2. Cryptomator の設定
 1. Cryptomator を起動し、対象の保管庫（Vault）をアンロックします。
 2. Cryptomator の「設定」または保管庫オプションを開き、仮想ドライブタイプを「WebDAV」に設定（または内蔵 WebDAV サーバーを有効化）。
 3. 表示される WebDAV URL（例: `http://127.0.0.1:42427/MyVault`）を確認し、`config.yaml` の `storage.webdav_url` に設定します。

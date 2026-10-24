@@ -27,8 +27,12 @@ def load_config(config_path: str = "config.yaml") -> Dict[str, Any]:
         設定辞書
     """
     if not os.path.exists(config_path):
-        print(f"警告: 設定ファイル {config_path} が見つかりません。デフォルト値を使用します。")
-        return {}
+        if config_path == "config.yaml" and os.path.exists("example.config.yaml"):
+            print("情報: config.yaml が存在しないため、example.config.yaml を参照します。")
+            config_path = "example.config.yaml"
+        else:
+            print(f"警告: 設定ファイル {config_path} が見つかりません。デフォルト値を使用します。")
+            return {}
     with open(config_path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
