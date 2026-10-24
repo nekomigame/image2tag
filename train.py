@@ -129,13 +129,18 @@ def train_model(config: Dict[str, Any]) -> None:
     model = model.to(device)
     print(f"デバイス: {device}, 入力解像度: {image_size}x{image_size}, モデル: {model.model_name}")
 
-    # 3. WebDAV ストリーミングデータセットの準備 (SSD非保存)
+    # 3. WebDAV ストリーミングデータセットの準備 (SSD非保存 & RAMプリロード)
+    preload_to_ram = train_cfg.get("preload_to_ram", True)
+    preload_workers = train_cfg.get("preload_workers", 16)
+
     full_dataset = WebDAVStreamingDataset(
         client=client,
         dataset_name=target_dataset,
         tag_to_id=tag_to_id,
         image_size=image_size,
         is_training=True,
+        preload_to_ram=preload_to_ram,
+        preload_workers=preload_workers,
         in_memory_cache_size=cache_size,
     )
 
@@ -165,6 +170,17 @@ def train_model(config: Dict[str, Any]) -> None:
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     scaler = GradScaler("cuda", enabled=torch.cuda.is_available())
 
+    # GPU 高速前処理用テンソル (ImageNet 正規化)
+    norm_mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
+    norm_std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
+
+    def preprocess_on_gpu(imgs: torch.Tensor, augment: bool = True) -> torch.Tensor:
+        """GPU 上で uint8 テンソルを一括正規化 & 水平反転 (CPU 負荷ゼロ)."""
+        x = imgs.to(device, non_blocking=True).float().div_(255.0)
+        if augment and torch.rand(1).item() > 0.5:
+            x = torch.flip(x, dims=[3])
+        return x.sub_(norm_mean).div_(norm_std)
+
     # 5. 学習ループ
     best_val_loss = float("inf")
 
@@ -174,8 +190,9 @@ def train_model(config: Dict[str, Any]) -> None:
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{epochs} [Train]")
         for images, targets in pbar:
-            images = images.to(device, non_blocking=True)
             targets = targets.to(device, non_blocking=True)
+            # GPU 側で一括前処理
+            images = preprocess_on_gpu(images, augment=True)
 
             optimizer.zero_grad()
             with autocast("cuda", enabled=torch.cuda.is_available()):
@@ -197,8 +214,8 @@ def train_model(config: Dict[str, Any]) -> None:
         val_loss = 0.0
         with torch.no_grad():
             for images, targets in val_loader:
-                images = images.to(device, non_blocking=True)
                 targets = targets.to(device, non_blocking=True)
+                images = preprocess_on_gpu(images, augment=False)
 
                 with autocast("cuda", enabled=torch.cuda.is_available()):
                     logits = model(images)

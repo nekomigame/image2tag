@@ -29,6 +29,12 @@ training:
   # タグの絞り込み基準（出現回数）
   min_tag_frequency: 5 # この回数未満しか出現しない稀少タグを除外
   
+  # 高速化・インメモリ設定 (ローカルSSDへの書き込みは0バイト)
+  preload_to_ram: true # 初回にマルチスレッドで全画像をRAMに並列吸い上げ（推奨: true）
+  preload_workers: 16  # 並列WebDAV取得スレッド数
+  in_memory_cache_size: 2000 # preload_to_ram=false 時にRAM内に保持する最大画像数
+  num_workers: 0       # RAMプリロード時はメインプロセス転送が最速 (0推奨)
+  
   pretrained: true
   batch_size: 16
   epochs: 15
