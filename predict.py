@@ -16,8 +16,10 @@ import requests
 import torch
 import torch.nn.functional as F
 from torchvision.transforms.functional import pil_to_tensor
+import yaml
 
 from model import build_model
+from webdav_client import WebDAVClient
 
 
 class TagPredictor:
@@ -58,7 +60,6 @@ class TagPredictor:
 
         # タグ語彙辞書の復元
         if "id_to_tag" in checkpoint:
-            # チェックポイント内の id_to_tag (キーが整数の場合と文字列の場合を考慮)
             raw_id_to_tag = checkpoint["id_to_tag"]
             self.id_to_tag: Dict[int, str] = {int(k): str(v) for k, v in raw_id_to_tag.items()}
             self.tag_to_id: Dict[str, int] = {v: k for k, v in self.id_to_tag.items()}
@@ -68,9 +69,48 @@ class TagPredictor:
             self.tag_to_id = vocab_data.get("tag_to_id", {})
             self.id_to_tag = {int(v): k for k, v in self.tag_to_id.items()}
         else:
-            raise ValueError(
-                "チェックポイント内にタグ語彙辞書が含まれておらず、vocab_path も指定されていません。"
-            )
+            # チェックポイントファイル名または config からデータセット名を推測し、WebDAV から自動取得
+            base_name = os.path.basename(checkpoint_path)
+            candidate_ds = base_name.replace("_best_model.pth", "").replace(".pth", "")
+            
+            # config.yaml をロード
+            config_data = {}
+            for cfg_candidate in ("config.yaml", "example.config.yaml"):
+                if os.path.exists(cfg_candidate):
+                    with open(cfg_candidate, "r", encoding="utf-8") as f:
+                        config_data = yaml.safe_load(f) or {}
+                    break
+
+            storage_cfg = config_data.get("storage", {})
+            webdav_url = storage_cfg.get("webdav_url", "http://localhost:42427/hNO0KRrnc_bq/hentai")
+            username = os.getenv("WEBDAV_USERNAME") or storage_cfg.get("username")
+            password = os.getenv("WEBDAV_PASSWORD") or storage_cfg.get("password")
+            
+            client = WebDAVClient(base_url=webdav_url, username=username, password=password)
+            vocab_rel_path = f"datasets/{candidate_ds}/tag_vocab.json"
+            print(f"チェックポイント内に語彙辞書が未同梱のため、WebDAV ({vocab_rel_path}) から自動取得を試行します...")
+            
+            vocab_bytes = client.get_bytes(vocab_rel_path)
+            if vocab_bytes:
+                vocab_data = json.loads(vocab_bytes.decode("utf-8"))
+                self.tag_to_id = vocab_data.get("tag_to_id", {})
+                self.id_to_tag = {int(v): k for k, v in self.tag_to_id.items()}
+                print(f"WebDAV からタグ語彙 ({len(self.id_to_tag)} 種類) を自動復元しました。")
+                
+                # 次回以降の高速起動のため、チェックポイントに語彙を追記保存
+                try:
+                    checkpoint["id_to_tag"] = self.id_to_tag
+                    checkpoint["tag_to_id"] = self.tag_to_id
+                    torch.save(checkpoint, checkpoint_path)
+                    print(f"チェックポイント (.pth) に語彙辞書を同期保存しました。次回以降は WebDAV なしで即座にロードできます。")
+                except Exception:
+                    pass
+            else:
+                raise ValueError(
+                    f"タグ語彙辞書が見つかりません。チェックポイント内に辞書がなく、"
+                    f"WebDAV 内の '{vocab_rel_path}' からも取得できませんでした。"
+                    f"--vocab オプションで tag_vocab.json を直接指定してください。"
+                )
 
         if num_classes == 0:
             num_classes = len(self.id_to_tag)
@@ -226,7 +266,7 @@ def main() -> None:
     print("=" * 60)
     for tag, score in predictions:
         pct = score * 100.0
-        bar = "█" * int(pct // 5)
+        bar = "#" * int(pct // 5)
         print(f" {pct:5.1f}% | {bar:<20} | {tag}")
     print("=" * 60)
     print("\nプロンプト形式:")

@@ -128,7 +128,7 @@ def handle_list(args: argparse.Namespace, config: Dict[str, Any]) -> None:
 
 def handle_predict(args: argparse.Namespace) -> None:
     """学習済みモデルによるタグ予測を実行します."""
-    predictor = TagPredictor(checkpoint_path=args.checkpoint)
+    predictor = TagPredictor(checkpoint_path=args.checkpoint, vocab_path=args.vocab)
     predictions = predictor.predict(args.image, threshold=args.threshold, top_k=args.top_k)
 
     if args.prompt_only:
@@ -144,7 +144,7 @@ def handle_predict(args: argparse.Namespace) -> None:
     print("=" * 60)
     for tag, score in predictions:
         pct = score * 100.0
-        bar = "█" * int(pct // 5)
+        bar = "#" * int(pct // 5)
         print(f" {pct:5.1f}% | {bar:<20} | {tag}")
     print("=" * 60)
     print("\nプロンプト形式:")
@@ -210,6 +210,9 @@ def main() -> None:
     pred_parser = subparsers.add_parser("predict", help="学習済みモデルを用いて画像からタグを予測")
     pred_parser.add_argument("--checkpoint", "-c", required=True, help="チェックポイント (.pth) のパス")
     pred_parser.add_argument("--image", "-i", required=True, help="画像ファイルパスまたは画像 URL")
+    pred_parser.add_argument(
+        "--vocab", "-v", default=None, help="タグ語彙ファイル (tag_vocab.json) のパス (未指定時はWebDAVから自動取得)"
+    )
     pred_parser.add_argument(
         "--threshold", "-t", type=float, default=0.35, help="検出確率しきい値 (デフォルト: 0.35)"
     )
