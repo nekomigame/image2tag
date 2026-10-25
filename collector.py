@@ -121,7 +121,7 @@ class DatasetCollector:
 
                 for retry in range(max_retries):
                     try:
-                        batch_limit = min(100, limit - len(existing_ids))
+                        batch_limit = min(1000, limit - len(existing_ids))
                         posts = self.r34.search(
                             tags=query_tags,
                             limit=batch_limit,
