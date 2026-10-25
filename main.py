@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 import yaml
 
 from collector import DatasetCollector
+from predict import TagPredictor
 from train import train_model
 from webdav_client import WebDAVClient
 
@@ -125,6 +126,31 @@ def handle_list(args: argparse.Namespace, config: Dict[str, Any]) -> None:
     print("-" * 60)
 
 
+def handle_predict(args: argparse.Namespace) -> None:
+    """学習済みモデルによるタグ予測を実行します."""
+    predictor = TagPredictor(checkpoint_path=args.checkpoint)
+    predictions = predictor.predict(args.image, threshold=args.threshold, top_k=args.top_k)
+
+    if args.prompt_only:
+        print(", ".join([tag for tag, _ in predictions]))
+        return
+
+    if args.json:
+        output_data = [{"tag": tag, "score": round(score, 4)} for tag, score in predictions]
+        print(json.dumps(output_data, ensure_ascii=False, indent=2))
+        return
+
+    print(f"\n予測結果 (検出タグ数: {len(predictions)} 件, しきい値: {args.threshold}):")
+    print("=" * 60)
+    for tag, score in predictions:
+        pct = score * 100.0
+        bar = "█" * int(pct // 5)
+        print(f" {pct:5.1f}% | {bar:<20} | {tag}")
+    print("=" * 60)
+    print("\nプロンプト形式:")
+    print(", ".join([tag for tag, _ in predictions]))
+
+
 def main() -> None:
     """メイン関数."""
     # .env 環境変数を読み込み
@@ -180,6 +206,21 @@ def main() -> None:
     # サブコマンド: list
     subparsers.add_parser("list", help="Cryptomator 内の保存済みデータセット一覧を表示")
 
+    # サブコマンド: predict
+    pred_parser = subparsers.add_parser("predict", help="学習済みモデルを用いて画像からタグを予測")
+    pred_parser.add_argument("--checkpoint", "-c", required=True, help="チェックポイント (.pth) のパス")
+    pred_parser.add_argument("--image", "-i", required=True, help="画像ファイルパスまたは画像 URL")
+    pred_parser.add_argument(
+        "--threshold", "-t", type=float, default=0.35, help="検出確率しきい値 (デフォルト: 0.35)"
+    )
+    pred_parser.add_argument(
+        "--top-k", "-k", type=int, default=None, help="出力する最大タグ数 (省略時はしきい値以上の全件)"
+    )
+    pred_parser.add_argument(
+        "--prompt-only", action="store_true", help="カンマ区切りのタグプロンプトのみを出力"
+    )
+    pred_parser.add_argument("--json", action="store_true", help="JSON 形式で出力")
+
     args = parser.parse_args()
     config = load_config(args.config)
 
@@ -189,6 +230,8 @@ def main() -> None:
         handle_train(args, config)
     elif args.command == "list":
         handle_list(args, config)
+    elif args.command == "predict":
+        handle_predict(args)
     else:
         parser.print_help()
 

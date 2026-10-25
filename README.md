@@ -72,6 +72,38 @@ uv run python main.py train --dataset-name "solo_1girl_v1" --preset low_vram --m
 uv run python main.py train --dataset-name "solo_1girl_v1" --preset high_quality --min-frequency 10 --epochs 30
 ```
 
+### 4. 学習済みモデルを使ったタグ予測・推論 (`predict`)
+学習したチェックポイント（`.pth`）を使って、画像（ローカルファイルまたは Web URL）からタグを予測します。
+
+```powershell
+# 信頼度付きで予測結果を表示
+uv run python main.py predict --checkpoint "./checkpoints/test_overwatch_best_model.pth" --image "sample.jpg"
+
+# Web上の画像URLから直接予測
+uv run python main.py predict --checkpoint "./checkpoints/test_overwatch_best_model.pth" --image "https://example.com/image.jpg"
+
+# カンマ区切りのプロンプト形式（Danbooru / Stable Diffusion 形式）のみを出力
+uv run python main.py predict --checkpoint "./checkpoints/test_overwatch_best_model.pth" --image "sample.jpg" --prompt-only
+
+# 検出確率のしきい値や最大取得数を指定
+uv run python main.py predict --checkpoint "./checkpoints/test_overwatch_best_model.pth" --image "sample.jpg" --threshold 0.4 --top-k 15
+```
+
+#### Python コードから直接呼び出す場合
+```python
+from predict import TagPredictor
+
+# モデルの読み込み
+predictor = TagPredictor(checkpoint_path="./checkpoints/test_overwatch_best_model.pth")
+
+# 1. 信頼度付きリストを取得: [('tracer_(overwatch)', 0.98), ('1girl', 0.95), ...]
+tags_with_scores = predictor.predict("sample.jpg", threshold=0.35)
+
+# 2. カンマ区切りのプロンプト文字列を取得: "tracer_(overwatch), 1girl, solo, goggles"
+prompt_text = predictor.predict_to_prompt("sample.jpg", threshold=0.35)
+print(prompt_text)
+```
+
 ---
 
 ## モジュール構成
