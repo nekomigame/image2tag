@@ -114,26 +114,28 @@ class DatasetCollector:
             )
 
         try:
+            PAGE_FETCH_LIMIT = 1000  # Rule34 API の 1 ページあたり最大取得件数 (1000 件)
+
             while len(existing_ids) < limit:
                 posts = None
                 max_retries = 5
-                retry_delay = 5.0
+                retry_delay = 60.0  # 429検知時はバケット回復のため60秒待機
 
                 for retry in range(max_retries):
                     try:
-                        batch_limit = min(1000, limit - len(existing_ids))
+                        # API レート制限ガード: 検索リクエスト間にインターバルを確保
+                        time.sleep(1.5)
                         posts = self.r34.search(
                             tags=query_tags,
-                            limit=batch_limit,
+                            limit=PAGE_FETCH_LIMIT,  # 常に最大 1000 件を一括取得
                             page_id=page_id,
                         )
                         break
                     except Exception as e:
                         err_str = str(e)
                         if "429" in err_str or "Too Many Requests" in err_str:
-                            print(f"\nRule34 レートリミット (429) を検知。{retry_delay:.0f}秒待機してリトライします ({retry + 1}/{max_retries})...")
+                            print(f"\nRule34 レートリミット (429) を検知。API バケット回復のため {retry_delay:.0f}秒待機してリトライします ({retry + 1}/{max_retries})...")
                             time.sleep(retry_delay)
-                            retry_delay *= 2
                         else:
                             print(f"\nRule34 API 検索エラー (ページ {page_id}): {e}")
                             break
@@ -200,6 +202,11 @@ class DatasetCollector:
                         pass
 
                     time.sleep(rate_limit_delay)
+
+                # 取得件数が上限未満の場合はこれ以上のページが存在しないため終了
+                if len(posts) < PAGE_FETCH_LIMIT:
+                    print("\nこれ以上の画像（最終ページ）に到達したため検索を終了します。")
+                    break
 
                 page_id += 1
 
