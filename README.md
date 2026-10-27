@@ -104,6 +104,17 @@ prompt_text = predictor.predict_to_prompt("sample.jpg", threshold=0.35)
 print(prompt_text)
 ```
 
+### 5. Google Colab での実行 (`image2tag_colab.ipynb`)
+Google Colab 上で Google Drive に配置した Cryptomator Vault をアンロックし、GPU（T4 / V100 / A100）を活用してストリーミング学習・推論を行うことができます。
+
+1. [image2tag_colab.ipynb](file:///C:/Users/nekom/Desktop/python/image2tag/image2tag_colab.ipynb) を Google Colab にアップロードまたは開きます。
+2. ノートブック内の手順に従ってセルを上から順に実行します：
+   - Google Drive をマウント（`/content/drive`）
+   - Linux 向け Cryptomator CLI（`cryptomator-cli`）を自動ダウンロード & セットアップ
+   - Google Drive 内の Vault パス（例: `/content/drive/MyDrive/MyVault`）とパスワードを入力して WebDAV をバックグラウンド起動
+   - WebDAV URL が自動検出され、`config.yaml` に自動設定されます
+   - Colab のローカルディスクに平文画像を一切書き込むことなく、RAM プリロード経由で高速に Swin Transformer v2 を学習・推論します。
+
 ---
 
 ## モジュール構成
